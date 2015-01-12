@@ -33,17 +33,17 @@
 #include <stdint.h>
 #include <time.h>
 
-#define  LOG_TAG    "jnitest"
+#define  LOG_TAG    "EON"
 #define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__))
 #define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__))
 #define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__))
-static void printGLString(const char* name, GLenum s) 
+static void printGLString(const char* name, GLenum s)
 {
 	const char* v = (const char*) glGetString(s);
 	LOGI("GL %s = %s\n", name, v);
 }
 
-static void checkGlError(const char* op) 
+static void checkGlError(const char* op)
 {
 	for (GLint error = glGetError(); error; error
 	        = glGetError()) {
@@ -52,18 +52,25 @@ static void checkGlError(const char* op)
 }
 
 static const char gVertexShader[] =
+    // VS input
     "attribute vec4 vPosition;\n"
+    "attribute vec2 vUv0;\n"
+    // VS output
+    "varying vec2 oUv0;\n"
     "void main() {\n"
     "  gl_Position = vPosition;\n"
+    "  oUv0 = vUv0;\n"
     "}\n";
 
 static const char gFragmentShader[] =
     "precision mediump float;\n"
+    "uniform sampler2D DiffuseTexture;\n"
+    "varying vec2 oUv0;\n"
     "void main() {\n"
-    "  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
+    "  gl_FragColor = vec4(texture2D(DiffuseTexture, oUv0.xy).rgb, 1.0);\n"
     "}\n";
 
-GLuint loadShader(GLenum shaderType, const char* pSource) 
+GLuint loadShader(GLenum shaderType, const char* pSource)
 {
 	GLuint shader = glCreateShader(shaderType);
 	if (shader) {
@@ -90,7 +97,7 @@ GLuint loadShader(GLenum shaderType, const char* pSource)
 	return shader;
 }
 
-GLuint createProgram(const char* pVertexSource, const char* pFragmentSource) 
+GLuint createProgram(const char* pVertexSource, const char* pFragmentSource)
 {
 	GLuint vertexShader = loadShader(GL_VERTEX_SHADER, pVertexSource);
 	if (!vertexShader) {
@@ -131,8 +138,51 @@ GLuint createProgram(const char* pVertexSource, const char* pFragmentSource)
 
 GLuint gProgram;
 GLuint gvPositionHandle;
+GLuint gvUv0Handle;
 
-bool setupGraphics(int w, int h) 
+GLuint gDiffuseTexture;
+
+void setupTexture()
+{
+	glGenTextures(1, &gDiffuseTexture);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, gDiffuseTexture);
+
+	int textureWidth = 256;
+	int textureHeight = 256;
+	int textureComponents = 3;
+	GLenum internalTextureFormat = GL_RGB;
+	GLenum textureFormat = GL_RGB;
+	GLenum textureType = GL_UNSIGNED_BYTE;
+	unsigned char* textureData = new unsigned char[textureWidth*textureHeight*textureComponents];
+	for(int y=0;y<textureWidth;++y)
+	{
+		for(int x=0;x<textureHeight;++x)
+		{
+			textureData[y*textureWidth*textureComponents+textureComponents*x] = x * 255 / textureWidth;	
+			textureData[y*textureWidth*textureComponents+textureComponents*x+1] = y * 255 / textureHeight;	
+			textureData[y*textureWidth*textureComponents+textureComponents*x+2] = 64;	
+		}
+	}
+	glTexImage2D(
+	    GL_TEXTURE_2D,
+	    0, // mip level
+	    internalTextureFormat,
+	    textureWidth, textureHeight,
+	    0, // border
+	    textureFormat,
+	    textureType,
+	    textureData);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	checkGlError("glTexImage2D");
+}
+
+bool setupGraphics(int w, int h)
 {
 	printGLString("Version", GL_VERSION);
 	printGLString("Vendor", GL_VENDOR);
@@ -147,19 +197,37 @@ bool setupGraphics(int w, int h)
 	}
 	gvPositionHandle = glGetAttribLocation(gProgram, "vPosition");
 	checkGlError("glGetAttribLocation");
-	LOGI("glGetAttribLocation(\"vPosition\") = %d\n",
-	     gvPositionHandle);
+	LOGI("glGetAttribLocation(\"vPosition\") = %d\n", gvPositionHandle);
+
+	gvUv0Handle = glGetAttribLocation(gProgram, "vUv0");
+	checkGlError("glGetAttribLocation");
+	LOGI("glGetAttribLocation(\"vUv0\") = %d\n", gvUv0Handle);
+
+	setupTexture();
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, gDiffuseTexture);
+	GLint ul = glGetUniformLocation(gProgram, "DiffuseTexture");
+	checkGlError("glGetUniformLocation");
+	LOGI("glGetUniformLocation(\"DiffuseTexture\") = %d\n", ul);
+	glUniform1i(ul, 0); // Bind DiffuseTexture to Texture unit 0
+	checkGlError("glUniform1i");
 
 	glViewport(0, 0, w, h);
 	checkGlError("glViewport");
 	return true;
 }
 
-const GLfloat gTriangleVertices[] = { 0.0f, 0.5f, -0.5f, -0.5f,
+const GLfloat gTriangleVertices[] = { 0.0f, 0.5f,
+                                      -0.5f, -0.5f,
                                       0.5f, -0.5f
                                     };
+const GLfloat gTriangleUv0[] = { 0.5f, 1.0f,
+                                 0.0f, 0.0f,
+                                 1.0f, 0.0f
+                               };
 
-void renderFrame() 
+void renderFrame()
 {
 	static float grey;
 	grey += 0.01f;
@@ -174,10 +242,18 @@ void renderFrame()
 	glUseProgram(gProgram);
 	checkGlError("glUseProgram");
 
-	glVertexAttribPointer(gvPositionHandle, 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
-	checkGlError("glVertexAttribPointer");
+
+
 	glEnableVertexAttribArray(gvPositionHandle);
 	checkGlError("glEnableVertexAttribArray");
+	glVertexAttribPointer(gvPositionHandle, 2, GL_FLOAT, GL_FALSE, 0, gTriangleVertices);
+	checkGlError("glVertexAttribPointer");
+
+	glEnableVertexAttribArray(gvUv0Handle);
+	checkGlError("glEnableVertexAttribArray (2)");
+	glVertexAttribPointer(gvUv0Handle, 2, GL_FLOAT, GL_FALSE, 0, gTriangleUv0);
+	checkGlError("glVertexAttribPointer (2)");
+
 	glDrawArrays(GL_TRIANGLES, 0, 3);
 	checkGlError("glDrawArrays");
 }
@@ -186,7 +262,7 @@ void renderFrame()
 /**
  * Our saved state data.
  */
-struct saved_state 
+struct saved_state
 {
 	float angle;
 	int32_t x;
@@ -196,7 +272,7 @@ struct saved_state
 /**
  * Shared state for our app.
  */
-struct engine 
+struct engine
 {
 	struct android_app* app;
 
@@ -258,7 +334,7 @@ static int engine_init_display(struct engine* engine)
 
 	surface = eglCreateWindowSurface(display, config, engine->app->window, NULL);
 
-    int attrib_list[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };	
+	int attrib_list[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
 	context = eglCreateContext(display, config, EGL_NO_CONTEXT, attrib_list);
 
 	if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE) {
@@ -424,7 +500,7 @@ void android_main(struct android_app* state) {
 				source->process(state, source);
 			}
 
-			// If a sensor has data, process it now.
+/*			// If a sensor has data, process it now.
 			if (ident == LOOPER_ID_USER) {
 				if (engine.accelerometerSensor != NULL) {
 					ASensorEvent event;
@@ -435,7 +511,7 @@ void android_main(struct android_app* state) {
 						     event.acceleration.z);
 					}
 				}
-			}
+			}*/
 
 			// Check if we are exiting.
 			if (state->destroyRequested != 0) {
