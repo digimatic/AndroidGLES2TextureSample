@@ -210,6 +210,7 @@ bool setupGraphics(int w, int h)
 	GLint ul = glGetUniformLocation(gProgram, "DiffuseTexture");
 	checkGlError("glGetUniformLocation");
 	LOGI("glGetUniformLocation(\"DiffuseTexture\") = %d\n", ul);
+	glUseProgram(gProgram);
 	glUniform1i(ul, 0); // Bind DiffuseTexture to Texture unit 0
 	checkGlError("glUniform1i");
 
@@ -500,18 +501,18 @@ void android_main(struct android_app* state) {
 				source->process(state, source);
 			}
 
-/*			// If a sensor has data, process it now.
+			// If a sensor has data, process it now.
 			if (ident == LOOPER_ID_USER) {
 				if (engine.accelerometerSensor != NULL) {
 					ASensorEvent event;
 					while (ASensorEventQueue_getEvents(engine.sensorEventQueue,
 					                                   &event, 1) > 0) {
-						LOGI("accelerometer: x=%f y=%f z=%f",
+/*						LOGI("accelerometer: x=%f y=%f z=%f",
 						     event.acceleration.x, event.acceleration.y,
-						     event.acceleration.z);
+						     event.acceleration.z);*/
 					}
 				}
-			}*/
+			}
 
 			// Check if we are exiting.
 			if (state->destroyRequested != 0) {
